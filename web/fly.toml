@@ -1,0 +1,64 @@
+# Fly.io config for the consolidated Next.js + Socket.IO app.
+# Replaces testing/backend/fly.toml after the v3 cutover.
+#
+# CORS_ALLOWED_ORIGINS must be set explicitly in production (the server
+# refuses to start with "*" when NODE_ENV=production).
+
+app = "widget-testing"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  HOST = "0.0.0.0"
+  PORT = "3000"
+  # SQLite (suites + run history) lives on the persistent volume.
+  DATA_DIR = "/data"
+  # The custom server refuses to start with CORS_ALLOWED_ORIGINS="*" when
+  # NODE_ENV=production. The Fly default domain is the only public origin
+  # we expect; add custom domains here as a comma-separated list.
+  CORS_ALLOWED_ORIGINS = "https://widget-testing.fly.dev"
+  # Verbose per-event Socket.IO tracing. Off in prod (it logs message/widget
+  # payloads to stdout). Set to "true" temporarily to debug a live session.
+  SOCKET_DEBUG = "false"
+  SESSION_TTL_SECONDS = "3600"
+  # Grace window: how long a session's server-side state (config, connection
+  # pool, in-flight run) survives a socket disconnect before teardown, so a
+  # transient drop / reconnect doesn't wipe the user's session.
+  SESSION_GRACE_SECONDS = "90"
+  QA_QUESTION_TIMEOUT_SECONDS = "180"
+  QA_WORKER_POOL_SIZE = "5"
+  MAX_EXCEL_ROWS = "10000"
+  # 30-day login session. APP_PIN itself is set via `fly secrets set` so the
+  # literal value never lives in this file or in the docker image.
+  APP_SESSION_TTL_SECONDS = "2592000"
+
+# Persistent storage for suites + run history (created via
+# `fly volumes create data --region fra --size 1`).
+[mounts]
+  source = "data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # Keep one machine warm — Socket.IO sessions don't survive cold starts and
+  # the connection pool / rate limiters live in-process.
+  min_machines_running = 1
+  processes = ["app"]
+
+[[http_service.checks]]
+  grace_period = "15s"
+  interval = "30s"
+  method = "GET"
+  timeout = "5s"
+  path = "/api/health"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
